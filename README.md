@@ -1,12 +1,26 @@
 # docker-livekit
 
-Self-hosted [LiveKit](https://livekit.io) SFU for **Pro Ticket** team-chat calls.
-Thin wrapper over `livekit/livekit-server` — Railway builds this Dockerfile from
-GitHub (no image registry publish). Also runs on any VPS with UDP.
+Self-hosted [LiveKit](https://livekit.io) SFU for **Pro Ticket** team-chat calls
+(and any other LiveKit app). Thin wrapper over `livekit/livekit-server` —
+Railway builds this Dockerfile from GitHub (no image registry publish). Also
+runs on any VPS with UDP.
 
 **Scope:** LiveKit + Redis. No Egress / recording.
 
 Repo: https://github.com/jorgehenrrique/docker-livekit
+
+## Deploy with one click (Railway)
+
+**Before clicking Deploy:** generate the two required credentials on your machine
+(step 1 below). The template asks for them up front — you cannot finish deploy
+without `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET`.
+
+**Official template:**
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/livekit-midiawebrtcrealtime?referralCode=gandalf&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
+After the service is up: attach a public domain on port **7880** and a
+**TCP Proxy** on **7881**, then redeploy. Full steps in [RAILWAY.MD](./RAILWAY.MD).
 
 ## How Pro Ticket connects
 
@@ -45,21 +59,16 @@ candidates, so the Pro Ticket panel works **without** client-side `forceTcp`.
 
 ## Deploy on Railway (start to finish)
 
-Do these steps **in order**. The first GitHub deploy often fails until keys +
-TCP proxy exist — that is expected.
+Prefer the **one-click template** (button above). Manual GitHub deploy works
+too. Do these steps **in order**. Keys come **first** (required on the template
+form). The first boot may still fail until the TCP proxy exists — that is
+expected.
 
-### 1. Create the Railway project from GitHub
-
-1. Open [Railway](https://railway.app) → **New Project**.
-2. **Deploy from GitHub repo** → select **`jorgehenrrique/docker-livekit`**
-   (or your fork). Authorize GitHub if asked.
-3. Railway creates a service and starts a build from the `Dockerfile`.
-4. Leave the canvas open — the first deploy may crash until step 5 (TCP proxy).
-
-### 2. Generate the LiveKit API key pair (on your machine)
+### 1. Generate the LiveKit API key pair (on your machine) — required first
 
 LiveKit does **not** create keys in the Railway UI. Run this **on your computer**
-(macOS/Linux Terminal or Windows PowerShell) — **not** inside Railway.
+(macOS/Linux Terminal or Windows PowerShell) — **not** inside Railway — **before**
+you open the template Deploy form.
 
 1. Open **Terminal** (or PowerShell).
 2. Make sure **Docker Desktop** is running.
@@ -76,26 +85,51 @@ API Key: APIxxxxxxxxxxxxxxxxxxxx
 API Secret: secretsecretrandomstringatleast32chars
 ```
 
-- Keep both values. You will paste them into **Railway** and into **Pro Ticket**.
+- Keep both values. You paste them into the **template Deploy form** (or
+  Variables) and later into **Pro Ticket**.
 - Prefer a secret **≥ 32 characters** (what `generate-keys` already prints).
 - Without Docker, any strong random key + secret ≥ 32 chars works, but
   `generate-keys` is the supported path.
 
+### 2. Create the Railway project (paste the keys from step 1)
+
+**Option A — template (recommended):** open
+[Deploy LiveKit SFU](https://railway.com/deploy/livekit-midiawebrtcrealtime?referralCode=gandalf&utm_medium=integration&utm_source=template&utm_campaign=generic)
+→ fill **`LIVEKIT_API_KEY`** and **`LIVEKIT_API_SECRET`** with the values from
+step 1 → Deploy. Redis and the other env vars come pre-wired. You cannot
+complete the template deploy without those two fields.
+
+**Option B — from GitHub:**
+
+1. Open [Railway](https://railway.app) → **New Project**.
+2. **Deploy from GitHub repo** → select **`jorgehenrrique/docker-livekit`**
+   (or your fork). Authorize GitHub if asked.
+3. Railway creates a service and starts a build from the `Dockerfile`.
+4. Add the variables in step 3 and Redis in step 4 yourself.
+
+Leave the canvas open — the first deploy may crash until step 5 (TCP proxy).
+
 ### 3. Set variables on the LiveKit service
 
-In Railway → click the **LiveKit / docker-livekit** service → **Variables** →
-add:
+**Template path:** you already entered the two keys on the Deploy form — skip
+adding them again unless you need to rotate. Confirm `PORT=7880` and
+`LIVEKIT_FORCE_TCP=auto` are present.
+
+**GitHub / manual path:** LiveKit service → **Variables** → add:
 
 | Variable | Value |
 | --- | --- |
-| `LIVEKIT_API_KEY` | the **API Key** from step 2 |
-| `LIVEKIT_API_SECRET` | the **API Secret** from step 2 |
+| `LIVEKIT_API_KEY` | the **API Key** from step 1 |
+| `LIVEKIT_API_SECRET` | the **API Secret** from step 1 |
 | `PORT` | `7880` |
 | `LIVEKIT_FORCE_TCP` | `auto` |
 
 Do **not** invent `RAILWAY_TCP_PROXY_*` — Railway injects those after step 5.
 
 ### 4. Add Redis (recommended) and wire it
+
+**Template path:** Redis is already included — skip to step 5 unless the refs
+are missing.
 
 1. On the project canvas: **+ New** → **Database** → **Add Redis**
    (or Redis from the template marketplace).
@@ -178,7 +212,7 @@ container logs `FATAL: … no TCP proxy` and exits.
    - **LiveKit URL:** `wss://<your-railway-domain>`  
      Example: `wss://something.up.railway.app`  
      Must start with `wss://` (not `https://`, no trailing path required).
-   - **API Key** / **API Secret:** the **same** pair from step 2 / Railway vars.
+   - **API Key** / **API Secret:** the **same** pair from step 1 / Railway vars.
    - Turn **Enable calls** on → save toggle and URL → save each secret.
 4. Open **Tickets → Team** inbox → start a call with two staff browsers and
    confirm audio.
