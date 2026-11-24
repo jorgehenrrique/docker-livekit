@@ -5,8 +5,8 @@
 #   auto (default) — Railway TCP proxy present → force_tcp + socat bridge.
 #                    On Railway without proxy → FATAL (do not boot "almost working").
 #                    Elsewhere → UDP preferred + allow_tcp_fallback.
-#   true           — always TCP-only.
-#   false          — always UDP preferred + TCP ICE fallback.
+#   true           — always TCP-only (on Railway still requires the TCP proxy).
+#   false          — always UDP preferred + TCP ICE fallback (refused on Railway).
 #
 # Railway maps a random *public* TCP port onto a fixed *container* port (7881).
 # LiveKit advertises the port it binds, so we bind ICE/TCP on the public port
@@ -41,8 +41,18 @@ if [ -n "${RAILWAY_TCP_PROXY_DOMAIN:-}" ] && [ -n "${RAILWAY_TCP_PROXY_PORT:-}" 
   HAS_RAILWAY_PROXY=1
 fi
 ON_RAILWAY=0
-if [ -n "${RAILWAY_PROJECT_ID:-}" ] || [ -n "${RAILWAY_ENVIRONMENT:-}" ] || [ -n "${RAILWAY_ENVIRONMENT_ID:-}" ]; then
+if [ -n "${RAILWAY_PROJECT_ID:-}" ] || [ -n "${RAILWAY_ENVIRONMENT_ID:-}" ] \
+  || [ -n "${RAILWAY_ENVIRONMENT_NAME:-}" ] || [ -n "${RAILWAY_SERVICE_ID:-}" ]; then
   ON_RAILWAY=1
+fi
+
+# Railway never routes inbound UDP. Without a TCP proxy every transport mode
+# yields silent rooms — refuse to boot "healthy but mute".
+if [ "$ON_RAILWAY" -eq 1 ] && [ "$HAS_RAILWAY_PROXY" -eq 0 ]; then
+  log "FATAL: running on Railway but no TCP proxy is configured."
+  log "FATAL: Settings → Networking → TCP Proxy → container port 7881, then redeploy."
+  log "FATAL: without it signalling may look healthy while every room stays silent."
+  exit 1
 fi
 
 USE_FORCE_TCP=0
@@ -51,16 +61,16 @@ case "$FORCE_MODE" in
     USE_FORCE_TCP=1
     ;;
   false|0|no)
+    if [ "$ON_RAILWAY" -eq 1 ]; then
+      log "FATAL: LIVEKIT_FORCE_TCP=false is not usable on Railway (no inbound UDP)."
+      log "FATAL: use auto (default) or true."
+      exit 1
+    fi
     USE_FORCE_TCP=0
     ;;
   auto|"")
-    if [ "$HAS_RAILWAY_PROXY" -eq 1 ]; then
+    if [ "$HAS_RAILWAY_PROXY" -eq 1 ] || [ "$ON_RAILWAY" -eq 1 ]; then
       USE_FORCE_TCP=1
-    elif [ "$ON_RAILWAY" -eq 1 ]; then
-      log "FATAL: running on Railway but no TCP proxy is configured."
-      log "FATAL: Settings → Networking → TCP Proxy → container port 7881, then redeploy."
-      log "FATAL: without it signalling may look healthy while every room stays silent."
-      exit 1
     else
       USE_FORCE_TCP=0
     fi
@@ -101,7 +111,7 @@ if [ "$USE_FORCE_TCP" -eq 1 ]; then
       "  use_external_ip: false" \
       "  node_ip: \"$(yesc "$NODE_IP")\"")
   else
-    # force_tcp outside Railway (or proxy not injected): bind stock 7881.
+    # force_tcp outside Railway: bind stock 7881 and advertise via external IP.
     ICE_TCP_PORT="${LIVEKIT_TCP_PORT:-7881}"
     log "mode=tcp (force) tcp_port=${ICE_TCP_PORT}"
     RTC_BLOCK=$(printf '%s\n' \
@@ -186,6 +196,10 @@ sed -e "s/$(printf '%s' "$LIVEKIT_API_SECRET" | sed 's/[]\/$*.^[]/\\&/g')/***RED
 
 # --------------------------------------------------------------- TCP bridge
 if [ -n "$BRIDGE_FROM" ] && [ -n "$ICE_TCP_PORT" ] && [ "$BRIDGE_FROM" != "$ICE_TCP_PORT" ]; then
+  if ! command -v socat >/dev/null 2>&1; then
+    log "FATAL: socat is required to bridge Railway TCP proxy port ${BRIDGE_FROM} → ${ICE_TCP_PORT}."
+    exit 1
+  fi
   BRIDGE_TO="${LIVEKIT_BRIDGE_TARGET_IP:-}"
   if [ -z "$BRIDGE_TO" ]; then
     BRIDGE_TO=$(ip -4 -o addr show scope global 2>/dev/null \
@@ -203,6 +217,13 @@ if [ -n "$BRIDGE_FROM" ] && [ -n "$ICE_TCP_PORT" ] && [ "$BRIDGE_FROM" != "$ICE_
   log "bridging container :${BRIDGE_FROM} -> ${BRIDGE_TO}:${ICE_TCP_PORT} (ICE/TCP)"
   socat TCP-LISTEN:"$BRIDGE_FROM",fork,reuseaddr \
     TCP:"$BRIDGE_TO":"$ICE_TCP_PORT",retry=5,interval=1 &
+  SOCAT_PID=$!
+  # Background start must not race past a dead bridge.
+  sleep 0.3
+  if ! kill -0 "$SOCAT_PID" 2>/dev/null; then
+    log "FATAL: socat bridge exited immediately (pid ${SOCAT_PID})."
+    exit 1
+  fi
 fi
 
 exec tini -s -- /livekit-server --config "$CONFIG"

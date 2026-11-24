@@ -26,9 +26,13 @@ Room names are `tc_{chatId}_{callId}` (isolated).
 
 | Value | Behaviour |
 | --- | --- |
-| `auto` (default) | Railway TCP proxy present → TCP-only + socat. On Railway **without** proxy → **FATAL**. Elsewhere → UDP preferred + ICE TCP fallback. |
-| `true` | Always TCP-only. |
-| `false` | Always UDP preferred + `allow_tcp_fallback`. |
+| `auto` (default) | Railway TCP proxy present → TCP-only + socat. Elsewhere → UDP preferred + ICE TCP fallback. |
+| `true` | Always TCP-only (still needs the Railway TCP proxy when hosted there). |
+| `false` | UDP preferred + `allow_tcp_fallback`. **Refused on Railway** (no inbound UDP). |
+
+On Railway, a TCP proxy on container port **7881** is **mandatory**. The process
+**exits on boot** if it is missing — for every `LIVEKIT_FORCE_TCP` value — so you
+never get a deploy that looks healthy while every room stays silent.
 
 Railway does **not** route inbound UDP. Media must use ICE/TCP via a TCP proxy
 on container port **7881**. With `force_tcp: true` the SFU only advertises TCP
@@ -55,8 +59,7 @@ candidates, so the Pro Ticket panel works **without** client-side `forceTcp`.
    - Public HTTPS domain on the LiveKit service (signalling + RoomService).
    - **TCP Proxy** → application/container port **7881**.
    - **Redeploy** after creating/changing the TCP proxy (entrypoint reads
-     `RAILWAY_TCP_PROXY_*` at boot). Without the proxy the process **exits**
-     on Railway so you do not get a silent “OK but mute rooms” deploy.
+     `RAILWAY_TCP_PROXY_*` at boot). Missing proxy → process **exits** (all modes).
 5. **Health:** `GET https://<domain>/` → `OK`.
 6. **Pro Ticket:** Settings → Team chat → Voice and video calls:
    - URL `wss://<domain>`
