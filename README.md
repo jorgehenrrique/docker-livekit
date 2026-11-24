@@ -58,8 +58,12 @@ TCP proxy exist — that is expected.
 
 ### 2. Generate the LiveKit API key pair (on your machine)
 
-LiveKit does **not** create keys in the Railway UI. Generate them once locally
-(Docker required):
+LiveKit does **not** create keys in the Railway UI. Run this **on your computer**
+(macOS/Linux Terminal or Windows PowerShell) — **not** inside Railway.
+
+1. Open **Terminal** (or PowerShell).
+2. Make sure **Docker Desktop** is running.
+3. Run:
 
 ```bash
 docker run --rm livekit/livekit-server generate-keys
@@ -117,19 +121,37 @@ Notes:
 
 ### 5. Networking (HTTPS domain + TCP proxy) — required
 
-Still on the **LiveKit** service → **Settings** → **Networking**:
+Still on the **LiveKit** service → **Settings** → **Networking**.
 
-1. **Public Networking** → **Generate Domain** (or add a custom domain).
-   - This gives HTTPS for signalling + RoomService, e.g.
-     `something.up.railway.app`.
-2. **TCP Proxy** → add proxy → target / application port **`7881`**.
-   - Railway shows a public host like `….proxy.rlwy.net` and a random public
-     port. You do **not** paste that into Pro Ticket; the entrypoint reads
+You need **two** separate things. They are easy to confuse in the Railway UI:
+
+| What in the UI | Port | Purpose |
+| --- | --- | --- |
+| **Domain** (`….up.railway.app`) under Public Networking | **7880** | HTTPS signalling + RoomService (`wss://` / `https://`) |
+| **+ TCP Proxy** (separate button, not the domain port) | **7881** | WebRTC media over TCP |
+
+**Correct screen looks like:**
+
+- Domain: `your-service.up.railway.app` → Port **7880**
+- TCP Proxy: `something.proxy.rlwy.net:NNNNN` → **:7881**
+
+**Wrong (common mistake):** pointing the HTTP domain at **7881** and never
+clicking **+ TCP Proxy**. That does **not** create `RAILWAY_TCP_PROXY_*`.
+The entrypoint then logs `FATAL: … no TCP proxy` and exits in a loop.
+
+Steps:
+
+1. **Public Networking** → **Generate Domain** (or custom domain).
+   - Set / edit the domain target port to **7880** (not 7881).
+2. Click **+ TCP Proxy** → application / container port **7881** → confirm.
+   - Railway shows a host like `….proxy.rlwy.net` and a random public port.
+   - Do **not** paste that host into Pro Ticket. The entrypoint reads
      `RAILWAY_TCP_PROXY_DOMAIN` / `RAILWAY_TCP_PROXY_PORT` automatically.
-3. **Redeploy** the LiveKit service (Deployments → Redeploy, or push an empty
-   change). The entrypoint only sees the proxy env vars on a **new** boot.
+3. **Redeploy** the LiveKit service (Deployments → Redeploy).
+   Proxy env vars only appear on a **new** boot after the proxy exists.
 
-If you skip the TCP proxy, the container logs `FATAL: … no TCP proxy` and exits.
+If you skip the TCP proxy (or only change the domain port to 7881), the
+container logs `FATAL: … no TCP proxy` and exits.
 
 ### 6. Confirm the deploy is healthy
 
@@ -165,8 +187,9 @@ If you skip the TCP proxy, the container logs `FATAL: … no TCP proxy` and exit
 
 | Symptom | Likely cause |
 | --- | --- |
-| Deploy exits immediately, log mentions TCP proxy | Step 5 missing or no redeploy after adding the proxy |
-| `GET /` is OK but call has no audio/video | TCP proxy not on **7881**, or redeploy skipped |
+| Deploy exits immediately, log mentions TCP proxy | No **+ TCP Proxy** on **7881**, domain pointed at 7881 instead, or no redeploy after adding the proxy |
+| Domain works on 7881 but logs still say no TCP proxy | HTTP domain ≠ TCP Proxy. Add **+ TCP Proxy** → 7881 and set the domain back to **7880** |
+| `GET /` is OK but call has no audio/video | TCP proxy missing/wrong port, or redeploy skipped |
 | Settings cannot save key/secret | `AI_MASTER_KEY` missing on the bot |
 | `VALIDATION` on URL | Used `https://` instead of `wss://` |
 | Join fails / unauthorized | Key/secret in Pro Ticket ≠ Railway vars |
