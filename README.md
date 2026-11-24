@@ -6,14 +6,17 @@ GitHub (no image registry publish). Also runs on any VPS with UDP.
 
 **Scope:** LiveKit + Redis. No Egress / recording.
 
+Repo: https://github.com/jorgehenrrique/docker-livekit
+
 ## How Pro Ticket connects
 
 | Setting (Settings → Team chat → Voice and video calls) | Value |
 | --- | --- |
-| URL | `wss://<your-public-domain>` (must be `ws://` or `wss://`) |
-| API Key / Secret | Same pair as `LIVEKIT_API_*` on this service |
-| enabled | on |
-| Bot | `AI_MASTER_KEY` must be set so Settings can encrypt secrets |
+| URL | `wss://<your-public-domain>` (must be `ws://` or `wss://`, **not** `https://`) |
+| API Key | Same value as `LIVEKIT_API_KEY` on this service |
+| API Secret | Same value as `LIVEKIT_API_SECRET` on this service |
+| Enable calls | on |
+| Bot env | `AI_MASTER_KEY` must be set on the Pro Ticket bot so Settings can encrypt secrets |
 
 The bot mints JWTs and calls RoomService over HTTPS (`wss://` → `https://`).
 The panel uses `livekit-client` (`room.connect`). Rooms are auto-created on join
@@ -38,51 +41,158 @@ Railway does **not** route inbound UDP. Media must use ICE/TCP via a TCP proxy
 on container port **7881**. With `force_tcp: true` the SFU only advertises TCP
 candidates, so the Pro Ticket panel works **without** client-side `forceTcp`.
 
-## Deploy on Railway
+---
 
-1. **New Project** → Deploy from GitHub → this repo (`docker-livekit`).
-2. **Add Redis** (plugin). Map variables on the LiveKit service, for example:
-   - `LIVEKIT_REDIS_HOST=${{Redis.REDIS_HOST}}` (or private domain)
-   - `LIVEKIT_REDIS_PORT=${{Redis.REDIS_PORT}}`
-   - `LIVEKIT_REDIS_PASSWORD=${{Redis.REDIS_PASSWORD}}` if set
-3. **Generate keys** (locally once):
+## Deploy on Railway (start to finish)
+
+Do these steps **in order**. The first GitHub deploy often fails until keys +
+TCP proxy exist — that is expected.
+
+### 1. Create the Railway project from GitHub
+
+1. Open [Railway](https://railway.app) → **New Project**.
+2. **Deploy from GitHub repo** → select **`jorgehenrrique/docker-livekit`**
+   (or your fork). Authorize GitHub if asked.
+3. Railway creates a service and starts a build from the `Dockerfile`.
+4. Leave the canvas open — the first deploy may crash until step 5 (TCP proxy).
+
+### 2. Generate the LiveKit API key pair (on your machine)
+
+LiveKit does **not** create keys in the Railway UI. Generate them once locally
+(Docker required):
+
+```bash
+docker run --rm livekit/livekit-server generate-keys
+```
+
+Example output (yours will differ):
+
+```text
+API Key: APIxxxxxxxxxxxxxxxxxxxx
+API Secret: secretsecretrandomstringatleast32chars
+```
+
+- Keep both values. You will paste them into **Railway** and into **Pro Ticket**.
+- Prefer a secret **≥ 32 characters** (what `generate-keys` already prints).
+- Without Docker, any strong random key + secret ≥ 32 chars works, but
+  `generate-keys` is the supported path.
+
+### 3. Set variables on the LiveKit service
+
+In Railway → click the **LiveKit / docker-livekit** service → **Variables** →
+add:
+
+| Variable | Value |
+| --- | --- |
+| `LIVEKIT_API_KEY` | the **API Key** from step 2 |
+| `LIVEKIT_API_SECRET` | the **API Secret** from step 2 |
+| `PORT` | `7880` |
+| `LIVEKIT_FORCE_TCP` | `auto` |
+
+Do **not** invent `RAILWAY_TCP_PROXY_*` — Railway injects those after step 5.
+
+### 4. Add Redis (recommended) and wire it
+
+1. On the project canvas: **+ New** → **Database** → **Add Redis**
+   (or Redis from the template marketplace).
+2. Wait until Redis is online.
+3. Back on the **LiveKit** service → **Variables**, add **reference** variables
+   (use the variable picker so the service name matches yours — often `Redis`):
+
+| Variable on LiveKit | Reference (typical Railway Redis plugin) |
+| --- | --- |
+| `LIVEKIT_REDIS_HOST` | `${{Redis.REDISHOST}}` |
+| `LIVEKIT_REDIS_PORT` | `${{Redis.REDISPORT}}` |
+| `LIVEKIT_REDIS_PASSWORD` | `${{Redis.REDIS_PASSWORD}}` or `${{Redis.REDISPASSWORD}}` |
+
+Notes:
+
+- Official plugin names are `REDISHOST` / `REDISPORT` / `REDISPASSWORD` /
+  `REDIS_PASSWORD` — **not** `REDIS_HOST`.
+- Use the **private** host (`*.railway.internal`). Do **not** expose Redis
+  publicly for this setup.
+- Click the eye icon on the Redis service to confirm the resolved values.
+- Redis is recommended (shared room state / restarts). The SFU can run without
+  it for a quick test; omit these three vars in that case.
+
+### 5. Networking (HTTPS domain + TCP proxy) — required
+
+Still on the **LiveKit** service → **Settings** → **Networking**:
+
+1. **Public Networking** → **Generate Domain** (or add a custom domain).
+   - This gives HTTPS for signalling + RoomService, e.g.
+     `something.up.railway.app`.
+2. **TCP Proxy** → add proxy → target / application port **`7881`**.
+   - Railway shows a public host like `….proxy.rlwy.net` and a random public
+     port. You do **not** paste that into Pro Ticket; the entrypoint reads
+     `RAILWAY_TCP_PROXY_DOMAIN` / `RAILWAY_TCP_PROXY_PORT` automatically.
+3. **Redeploy** the LiveKit service (Deployments → Redeploy, or push an empty
+   change). The entrypoint only sees the proxy env vars on a **new** boot.
+
+If you skip the TCP proxy, the container logs `FATAL: … no TCP proxy` and exits.
+
+### 6. Confirm the deploy is healthy
+
+1. Open the latest deployment **Logs**. You should see something like:
+   - `mode=tcp (Railway proxy) ICE/TCP advertised as …`
+   - `redis: distributed mode via …` (if Redis was wired)
+   - LiveKit starting without FATAL
+2. In a browser or with curl:
 
    ```bash
-   docker run --rm livekit/livekit-server generate-keys
+   curl -sS "https://<your-railway-domain>/"
    ```
 
-   Set on the LiveKit service:
-   - `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` (secret ≥ 32 chars recommended)
-   - `PORT=7880`
-   - `LIVEKIT_FORCE_TCP=auto`
-4. **Networking**
-   - Public HTTPS domain on the LiveKit service (signalling + RoomService).
-   - **TCP Proxy** → application/container port **7881**.
-   - **Redeploy** after creating/changing the TCP proxy (entrypoint reads
-     `RAILWAY_TCP_PROXY_*` at boot). Missing proxy → process **exits** (all modes).
-5. **Health:** `GET https://<domain>/` → `OK`.
-6. **Pro Ticket:** Settings → Team chat → Voice and video calls:
-   - URL `wss://<domain>`
-   - paste the same key + secret
-   - enable
+   Expected body: `OK`
+3. Copy the public hostname (no path), e.g. `something.up.railway.app`.
+
+### 7. Configure Pro Ticket
+
+1. On the **Pro Ticket bot** host, ensure `AI_MASTER_KEY` is set and the bot was
+   restarted after setting it. Without it, Settings returns `MASTER_KEY_MISSING`
+   when saving LiveKit secrets.
+2. Open the panel → **Settings → Team chat → Voice and video calls**.
+3. Fill:
+   - **LiveKit URL:** `wss://<your-railway-domain>`  
+     Example: `wss://something.up.railway.app`  
+     Must start with `wss://` (not `https://`, no trailing path required).
+   - **API Key** / **API Secret:** the **same** pair from step 2 / Railway vars.
+   - Turn **Enable calls** on → save toggle and URL → save each secret.
+4. Open **Tickets → Team** inbox → start a call with two staff browsers and
+   confirm audio.
+
+### If something fails
+
+| Symptom | Likely cause |
+| --- | --- |
+| Deploy exits immediately, log mentions TCP proxy | Step 5 missing or no redeploy after adding the proxy |
+| `GET /` is OK but call has no audio/video | TCP proxy not on **7881**, or redeploy skipped |
+| Settings cannot save key/secret | `AI_MASTER_KEY` missing on the bot |
+| `VALIDATION` on URL | Used `https://` instead of `wss://` |
+| Join fails / unauthorized | Key/secret in Pro Ticket ≠ Railway vars |
+| RoomService / leave-end weirdness | Bot cannot reach `https://<domain>` (same host as `wss://`) |
+
+---
 
 ### Railway env reference
 
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `LIVEKIT_API_KEY` | yes | From `generate-keys` |
-| `LIVEKIT_API_SECRET` | yes | From `generate-keys` |
+| `LIVEKIT_API_SECRET` | yes | From `generate-keys` (≥ 32 chars recommended) |
 | `PORT` | yes | `7880` |
 | `LIVEKIT_FORCE_TCP` | no | Default `auto` |
-| `LIVEKIT_REDIS_HOST` | recommended | Enables shared room state |
-| `LIVEKIT_REDIS_PORT` | no | Default `6379` |
-| `LIVEKIT_REDIS_USERNAME` / `PASSWORD` | if Redis auth | |
+| `LIVEKIT_REDIS_HOST` | recommended | `${{Redis.REDISHOST}}` |
+| `LIVEKIT_REDIS_PORT` | no | `${{Redis.REDISPORT}}` (default `6379`) |
+| `LIVEKIT_REDIS_PASSWORD` | if Redis auth | `${{Redis.REDIS_PASSWORD}}` |
+| `LIVEKIT_REDIS_USERNAME` | rare | Only if your Redis ACL needs it |
 | `LIVEKIT_LOG_LEVEL` | no | Default `info` |
 | `LIVEKIT_NODE_IP` | rare | Override proxy DNS resolution |
 | `LIVEKIT_BRIDGE_TARGET_IP` | rare | Override socat target interface IP |
 
-`RAILWAY_TCP_PROXY_DOMAIN` / `PORT` / `APPLICATION_PORT` are injected by Railway
-when the TCP proxy exists — do not set them by hand.
+`RAILWAY_TCP_PROXY_DOMAIN` / `RAILWAY_TCP_PROXY_PORT` /
+`RAILWAY_TCP_APPLICATION_PORT` are injected by Railway when the TCP proxy
+exists — do not set them by hand.
 
 ## Local / VPS (UDP)
 
@@ -109,9 +219,6 @@ On a non-Railway host with real UDP ports, leave `LIVEKIT_FORCE_TCP=auto` or
 6. Calls toggle enabled → chat header shows calls available.
 7. Two staff browsers: start call → both hear audio (and optional cam/screen).
 8. End call clears presence; RoomService delete works (bot can reach HTTPS host).
-
-If signalling connects but media is silent: missing/wrong TCP proxy, or
-forgot redeploy after proxy change.
 
 ## Multi-server
 
