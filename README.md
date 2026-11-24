@@ -8,7 +8,7 @@ GitHub (no image registry publish). Also runs on any VPS with UDP.
 
 ## How Pro Ticket connects
 
-| Setting (Chat da Equipe → Chamadas) | Value |
+| Setting (Settings → Team chat → Voice and video calls) | Value |
 | --- | --- |
 | URL | `wss://<your-public-domain>` (must be `ws://` or `wss://`) |
 | API Key / Secret | Same pair as `LIVEKIT_API_*` on this service |
@@ -58,7 +58,7 @@ candidates, so the Pro Ticket panel works **without** client-side `forceTcp`.
      `RAILWAY_TCP_PROXY_*` at boot). Without the proxy the process **exits**
      on Railway so you do not get a silent “OK but mute rooms” deploy.
 5. **Health:** `GET https://<domain>/` → `OK`.
-6. **Pro Ticket:** Settings → Chat da Equipe → Chamadas:
+6. **Pro Ticket:** Settings → Team chat → Voice and video calls:
    - URL `wss://<domain>`
    - paste the same key + secret
    - enable
