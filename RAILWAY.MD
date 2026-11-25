@@ -1,6 +1,6 @@
 # Deploy and Host LiveKit SFU on Railway
 
-Self-hosted [LiveKit](https://livekit.io) SFU for WebRTC voice/video. Works with **any** LiveKit app — including [Pro Ticket](https://github.com/jorgehenrrique/docker-discord-bot-pro-ticket) Team Chat calls. Thin wrapper over `livekit/livekit-server` + Redis. No Egress/recording. Source: [github.com/jorgehenrrique/docker-livekit](https://github.com/jorgehenrrique/docker-livekit)
+Self-hosted [LiveKit](https://livekit.io) SFU for WebRTC voice/video. Works with **any** LiveKit app. Thin wrapper over `livekit/livekit-server` + Redis. No Egress/recording. Source: [github.com/jorgehenrrique/docker-livekit](https://github.com/jorgehenrrique/docker-livekit)
 
 ## About Hosting LiveKit SFU
 
@@ -12,9 +12,8 @@ After deploy: LiveKit service → **Settings → Source** → under the producti
 
 ## Common Use Cases
 
-- **Pro Ticket Team Chat** — Staff voice/video in the web panel (Settings → Team chat → Voice and video calls)
 - **Any LiveKit client** — Mint JWTs with the same API key/secret; point `room.connect` at `wss://your-domain`
-- **Shared SFU** — One deploy serves many apps / many Pro Ticket bots (same URL + keys; rooms isolated by name)
+- **Shared SFU** — One deploy serves many apps (same URL + keys; rooms isolated by name)
 - **Local / VPS** — Same image via Docker Compose with UDP preferred (see Implementation Details)
 
 ## Dependencies for LiveKit SFU Hosting
@@ -24,14 +23,12 @@ After deploy: LiveKit service → **Settings → Source** → under the producti
 - **Public domain on port 7880** + **TCP Proxy on port 7881** — Configured after deploy
 - Docker Desktop (optional) — only to run `generate-keys` once
 
-Also need: a [Railway](https://railway.com) account. Optional: any LiveKit-capable app (Pro Ticket, custom backend, etc.).
+Also need: a [Railway](https://railway.com) account and any LiveKit-capable app or backend.
 
 ### Deployment Dependencies
 
 - [LiveKit docs](https://docs.livekit.io) — server, tokens, client SDKs
 - [docker-livekit repo](https://github.com/jorgehenrrique/docker-livekit) — Dockerfile, entrypoint, Compose
-- [Pro Ticket bot](https://github.com/jorgehenrrique/docker-discord-bot-pro-ticket) — optional consumer (Team Chat calls)
-- [Pro Ticket install guide](https://prosystem.up.railway.app/en-US/install) — wiring calls in the panel
 - [Railway](https://railway.com) — hosting; TCP Proxy required for media
 
 ### Implementation Details
@@ -51,7 +48,7 @@ API Key: APIxxxxxxxxxxxxxxxxxxxx
 API Secret: secretsecretrandomstringatleast32chars
 ```
 
-- Save both values. Paste them into **Railway Variables** and into your app (e.g. Pro Ticket Settings).
+- Save both values. Paste them into **Railway Variables** and into your app.
 - Prefer a secret **≥ 32 characters** (`generate-keys` already prints that).
 - Without Docker, any strong random API key + secret ≥ 32 chars works; `generate-keys` is the supported path.
 
@@ -123,8 +120,6 @@ Any LiveKit SDK / server:
 
 Your backend mints participant JWTs with that key/secret. Browsers call `room.connect(wssUrl, token)`. RoomService HTTP uses the same host as `https://…`.
 
-**Pro Ticket:** Panel → **Settings → Team chat → Voice and video calls** → paste URL + key + secret → enable calls. Bot needs `AI_MASTER_KEY` so secrets encrypt in Mongo.
-
 **4 — Enable Auto Deploy** (Settings → Source) if disabled.
 
 #### Key Features
@@ -155,7 +150,7 @@ docker compose up --build
 | Deploy exits; log mentions TCP proxy | No **+ TCP Proxy** on **7881**, or domain pointed at 7881, or no redeploy after adding proxy |
 | `GET /` is OK but no audio/video | TCP proxy missing/wrong; redeploy skipped |
 | Join unauthorized | Key/secret in the app ≠ Railway vars |
-| URL validation fails (Pro Ticket) | Used `https://` instead of `wss://` |
+| URL rejected by client | Used `https://` instead of `wss://` |
 
 ### Why Deploy LiveKit SFU on Railway?
 
@@ -163,4 +158,4 @@ Railway is a singular platform to deploy your infrastructure stack. Railway will
 
 By deploying LiveKit SFU on Railway, you get a one-click WebRTC media server without UDP — TCP proxy path is built into the entrypoint — and the same repo still runs on Docker Compose or any VPS. Host your servers, databases, AI agents, and more on Railway.
 
-[**Pro Ticket support Discord**](https://discord.gg/tEp2D7MbjZ) · [LiveKit docs](https://docs.livekit.io) · [Repo](https://github.com/jorgehenrrique/docker-livekit)
+[LiveKit docs](https://docs.livekit.io) · [Repo](https://github.com/jorgehenrrique/docker-livekit)

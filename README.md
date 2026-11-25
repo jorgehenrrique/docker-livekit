@@ -1,11 +1,11 @@
 # docker-livekit
 
-Self-hosted [LiveKit](https://livekit.io) SFU for **Pro Ticket** team-chat calls
-(and any other LiveKit app). Thin wrapper over `livekit/livekit-server` —
-Railway builds this Dockerfile from GitHub (no image registry publish). Also
-runs on any VPS with UDP.
+Self-hosted [LiveKit](https://livekit.io) SFU for WebRTC voice/video — a thin
+wrapper over `livekit/livekit-server`. Railway builds this Dockerfile from
+GitHub (no image registry publish). Also runs on any VPS with UDP.
 
-**Scope:** LiveKit + Redis. No Egress / recording.
+**Scope:** LiveKit + Redis. No Egress / recording. Use it with any LiveKit
+client or backend that mints JWTs and connects over `wss://`.
 
 Repo: https://github.com/jorgehenrrique/docker-livekit
 
@@ -22,22 +22,21 @@ without `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET`.
 After the service is up: attach a public domain on port **7880** and a
 **TCP Proxy** on **7881**, then redeploy. Full steps in [RAILWAY.MD](./RAILWAY.MD).
 
-## How Pro Ticket connects
+## Connect any LiveKit app
 
-| Setting (Settings → Team chat → Voice and video calls) | Value |
+| Field | Value |
 | --- | --- |
-| URL | `wss://<your-public-domain>` (must be `ws://` or `wss://`, **not** `https://`) |
+| Server URL | `wss://<your-public-domain>` (must be `ws://` or `wss://`, **not** `https://`) |
 | API Key | Same value as `LIVEKIT_API_KEY` on this service |
 | API Secret | Same value as `LIVEKIT_API_SECRET` on this service |
-| Enable calls | on |
-| Bot env | `AI_MASTER_KEY` must be set on the Pro Ticket bot so Settings can encrypt secrets |
 
-The bot mints JWTs and calls RoomService over HTTPS (`wss://` → `https://`).
-The panel uses `livekit-client` (`room.connect`). Rooms are auto-created on join
-(`auto_create: true`) — Pro Ticket never calls `createRoom`.
+Your backend mints participant JWTs with that key/secret and may call RoomService
+over HTTPS (`wss://` → `https://`). Browsers use `livekit-client` /
+`room.connect`. Rooms are auto-created on join (`auto_create: true`) — clients
+need not call `createRoom`.
 
-One SFU can serve **many** Pro Ticket bots if they share the same URL + keys.
-Room names are `tc_{chatId}_{callId}` (isolated).
+One SFU can serve **many** apps if they share the same URL + keys. Isolate
+tenants with room name prefixes.
 
 ## Transport: `LIVEKIT_FORCE_TCP`
 
@@ -53,7 +52,7 @@ never get a deploy that looks healthy while every room stays silent.
 
 Railway does **not** route inbound UDP. Media must use ICE/TCP via a TCP proxy
 on container port **7881**. With `force_tcp: true` the SFU only advertises TCP
-candidates, so the Pro Ticket panel works **without** client-side `forceTcp`.
+candidates, so clients usually work **without** client-side `forceTcp`.
 
 ---
 
@@ -86,7 +85,7 @@ API Secret: secretsecretrandomstringatleast32chars
 ```
 
 - Keep both values. You paste them into the **template Deploy form** (or
-  Variables) and later into **Pro Ticket**.
+  Variables) and later into your LiveKit app.
 - Prefer a secret **≥ 32 characters** (what `generate-keys` already prints).
 - Without Docker, any strong random key + secret ≥ 32 chars works, but
   `generate-keys` is the supported path.
@@ -179,7 +178,7 @@ Steps:
    - Set / edit the domain target port to **7880** (not 7881).
 2. Click **+ TCP Proxy** → application / container port **7881** → confirm.
    - Railway shows a host like `….proxy.rlwy.net` and a random public port.
-   - Do **not** paste that host into Pro Ticket. The entrypoint reads
+   - Do **not** paste that host into your app. The entrypoint reads
      `RAILWAY_TCP_PROXY_DOMAIN` / `RAILWAY_TCP_PROXY_PORT` automatically.
 3. **Redeploy** the LiveKit service (Deployments → Redeploy).
    Proxy env vars only appear on a **new** boot after the proxy exists.
@@ -202,20 +201,14 @@ container logs `FATAL: … no TCP proxy` and exits.
    Expected body: `OK`
 3. Copy the public hostname (no path), e.g. `something.up.railway.app`.
 
-### 7. Configure Pro Ticket
+### 7. Configure your app
 
-1. On the **Pro Ticket bot** host, ensure `AI_MASTER_KEY` is set and the bot was
-   restarted after setting it. Without it, Settings returns `MASTER_KEY_MISSING`
-   when saving LiveKit secrets.
-2. Open the panel → **Settings → Team chat → Voice and video calls**.
-3. Fill:
-   - **LiveKit URL:** `wss://<your-railway-domain>`  
-     Example: `wss://something.up.railway.app`  
-     Must start with `wss://` (not `https://`, no trailing path required).
-   - **API Key** / **API Secret:** the **same** pair from step 1 / Railway vars.
-   - Turn **Enable calls** on → save toggle and URL → save each secret.
-4. Open **Tickets → Team** inbox → start a call with two staff browsers and
-   confirm audio.
+1. Point your backend / client at `wss://<your-railway-domain>`  
+   Example: `wss://something.up.railway.app`  
+   Must start with `wss://` (not `https://`, no trailing path required).
+2. Use the **same** API Key / API Secret from step 1 / Railway vars when minting
+   JWTs and calling RoomService.
+3. Connect two clients (e.g. browsers with `livekit-client`) and confirm audio.
 
 ### If something fails
 
@@ -224,10 +217,8 @@ container logs `FATAL: … no TCP proxy` and exits.
 | Deploy exits immediately, log mentions TCP proxy | No **+ TCP Proxy** on **7881**, domain pointed at 7881 instead, or no redeploy after adding the proxy |
 | Domain works on 7881 but logs still say no TCP proxy | HTTP domain ≠ TCP Proxy. Add **+ TCP Proxy** → 7881 and set the domain back to **7880** |
 | `GET /` is OK but call has no audio/video | TCP proxy missing/wrong port, or redeploy skipped |
-| Settings cannot save key/secret | `AI_MASTER_KEY` missing on the bot |
-| `VALIDATION` on URL | Used `https://` instead of `wss://` |
-| Join fails / unauthorized | Key/secret in Pro Ticket ≠ Railway vars |
-| RoomService / leave-end weirdness | Bot cannot reach `https://<domain>` (same host as `wss://`) |
+| Join fails / unauthorized | Key/secret in the app ≠ Railway vars |
+| RoomService issues | Backend cannot reach `https://<domain>` (same host as `wss://`) |
 
 ---
 
@@ -266,23 +257,21 @@ docker compose up --build
 On a non-Railway host with real UDP ports, leave `LIVEKIT_FORCE_TCP=auto` or
 `false` — clients prefer UDP and fall back to TCP via ICE automatically.
 
-## E2E checklist (Pro Ticket)
+## E2E checklist
 
 1. LiveKit health `GET /` → `OK`.
 2. Railway TCP proxy on **7881** exists; service redeployed after creating it.
-3. Bot has `AI_MASTER_KEY`; Settings saves key/secret without `MASTER_KEY_MISSING`.
-4. Settings URL is exactly `wss://<public-domain>` (not `https://`).
-5. Key/secret in Settings **match** the LiveKit service envs.
-6. Calls toggle enabled → chat header shows calls available.
-7. Two staff browsers: start call → both hear audio (and optional cam/screen).
-8. End call clears presence; RoomService delete works (bot can reach HTTPS host).
+3. App URL is exactly `wss://<public-domain>` (not `https://`).
+4. Key/secret in the app **match** the LiveKit service envs.
+5. Two clients: join the same room → both hear audio (and optional cam/screen).
+6. RoomService works from your backend (can reach the HTTPS host).
 
 ## Multi-server
 
-Point any number of Pro Ticket installations at the same `wss://` URL and the
-same API key/secret. Presence stays in each bot’s Mongo; media always goes
-browser ↔ this SFU.
+Point any number of LiveKit apps at the same `wss://` URL and the same API
+key/secret. Isolate tenants with room name prefixes; media always goes
+client ↔ this SFU.
 
 ## License
 
-LiveKit is Apache-2.0. This wrapper is provided as-is for use with Pro Ticket.
+LiveKit is Apache-2.0. This wrapper is provided as-is.

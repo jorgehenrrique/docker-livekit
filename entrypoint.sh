@@ -179,7 +179,7 @@ fi
   echo "rtc:"
   echo "$RTC_BLOCK"
   echo "room:"
-  # Pro Ticket never calls createRoom — join relies on auto_create.
+  # Join relies on auto_create (clients need not call createRoom).
   echo "  auto_create: ${LIVEKIT_ROOM_AUTO_CREATE:-true}"
   echo "  empty_timeout: ${LIVEKIT_ROOM_EMPTY_TIMEOUT:-300}"
   echo "  departure_timeout: ${LIVEKIT_ROOM_DEPARTURE_TIMEOUT:-20}"
